@@ -11,8 +11,9 @@ const UP_ARROW = "\e[A"
 const DOWN_ARROW = "\e[B"
 const RIGHT_ARROW = "\e[C"
 const LEFT_ARROW = "\e[D"
+const BACKSPACE = "\x08"
 
-export CTRL_C, TAB
+export CTRL_C, TAB, BACKSPACE
 export UP_ARROW, DOWN_ARROW, RIGHT_ARROW, LEFT_ARROW
 export replay
 export @deparse
@@ -83,6 +84,7 @@ function type_with_ghost_core(line::AbstractString, mode; display_prompt=false)
         line = dummy * line
     end
     clearline()
+    starting = true
     for index in collect(eachindex(line))
         if display_prompt
             if Base.get_have_color()
@@ -90,6 +92,8 @@ function type_with_ghost_core(line::AbstractString, mode; display_prompt=false)
             else
                 print(mode.prompt)
             end
+            mode.enter_prompt && starting && sleep(2)
+            starting = false
         end
         println(join(line[begin:index]))
         clearline(move_up=true)
@@ -190,7 +194,8 @@ function replay(
     prompt = "julia> "
     prompt_prefix = Base.text_colors[:bold] * Base.text_colors[:green]
     prompt_suffix = Base.color_normal
-    mode = (; name, prompt, prompt_prefix, prompt_suffix)
+    enter_prompt = true
+    mode = (; name, prompt, prompt_prefix, prompt_suffix, enter_prompt)
     current_mode_name = :julian
 
     # let's replay!
@@ -199,7 +204,8 @@ function replay(
 
         ghost_script = cell
         if current_mode_name == :julian
-            mode = if startswith(cell, ';')
+            mode = ()
+            if startswith(cell, ';')
                 ghost_script = cell[begin+1:end] # remove ';'
                 # shell mode
                 name = :shell
@@ -207,7 +213,8 @@ function replay(
                 prompt_prefix = Base.text_colors[:bold] * Base.text_colors[:red]
                 prompt_suffix = Base.color_normal
                 current_mode_name = name
-                (; name, prompt, prompt_prefix, prompt_suffix)
+                enter_prompt = true
+                mode = (; name, prompt, prompt_prefix, prompt_suffix, enter_prompt)
             elseif startswith(cell, ']')
                 ghost_script = cell[begin+1:end] # remove ']'
                 # pkg repl
@@ -222,7 +229,8 @@ function replay(
                 end
                 prompt_suffix = Base.color_normal
                 current_mode_name = name
-                (; name, prompt, prompt_prefix, prompt_suffix)
+                enter_prompt = true
+                mode = (; name, prompt, prompt_prefix, prompt_suffix, enter_prompt)
             elseif startswith(cell, '?')
                 ghost_script = cell[begin+1:end] # remove '?'
                 # help mode
@@ -232,7 +240,18 @@ function replay(
                 prompt_suffix = Base.color_normal
                 # help mode should back to julian mode
                 current_mode_name = :julian
-                (; name, prompt, prompt_prefix, prompt_suffix)
+                enter_prompt = true
+                mode = (; name, prompt, prompt_prefix, prompt_suffix, enter_prompt)
+            elseif startswith(cell, '>')
+                ghost_script = cell[begin+1:end] # remove '>'
+                # ct mode
+                name = :ct
+                prompt = "ct> "
+                prompt_prefix = Base.text_colors[:bold] * Base.text_colors[:magenta]
+                prompt_suffix = Base.color_normal
+                current_mode_name = name
+                enter_prompt = true
+                mode = (; name, prompt, prompt_prefix, prompt_suffix, enter_prompt)
             else
                 # julian mode
                 name = :julian
@@ -240,17 +259,23 @@ function replay(
                 prompt_prefix = Base.text_colors[:bold] * Base.text_colors[:green]
                 prompt_suffix = Base.color_normal
                 current_mode_name = :julian
-                (; name, prompt, prompt_prefix, prompt_suffix)
+                enter_prompt = false
+                mode = (; name, prompt, prompt_prefix, prompt_suffix, enter_prompt)
             end
         else
-            if endswith(cell, CTRL_C)
+            if endswith(cell, CTRL_C) || cell==BACKSPACE
                 # julian mode
                 name = :julian
                 prompt = "julia> "
                 prompt_prefix = Base.text_colors[:bold] * Base.text_colors[:green]
                 prompt_suffix = Base.color_normal
                 current_mode_name = :julian
-                mode = (; name, prompt, prompt_prefix, prompt_suffix)
+                enter_prompt = true
+                mode = (; name, prompt, prompt_prefix, prompt_suffix, enter_prompt)
+                cell==BACKSPACE && sleep(1)
+            else
+                enter_prompt = false
+                mode = (; mode.name, mode.prompt, mode.prompt_prefix, mode.prompt_suffix, enter_prompt)
             end
         end
 
